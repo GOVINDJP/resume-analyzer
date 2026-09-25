@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {analyze,hasTerm} from './analyzer.js';
+test('rejects empty and excessive inputs',()=>{assert.throws(()=>analyze('  '));assert.throws(()=>analyze('a'.repeat(60001)));assert.throws(()=>analyze('resume','a'.repeat(60001)));});
+test('matches skills at boundaries including punctuation',()=>{assert.equal(hasTerm('JavaScript','java'),false);for(const term of ['c++','c#','node.js','sql'])assert.equal(hasTerm(`Skills: ${term}, React`,term),true);assert.equal(hasTerm('NoSQL','sql'),false);});
+test('detects headings, contacts, action and measured bullets',()=>{const r=analyze('a@example.com\nExperience\n- Built tools for 500 users\n- Improved speed by 25%\nEducation\nSkills\nPython');assert.equal(r.sections.filter(s=>s.found).length,3);assert.equal(r.contact,true);assert.equal(r.bullets,2);assert.equal(r.quantified,2);assert.equal(r.action,2);});
+test('does not mistake dates or prose for accomplishment metrics or headings',()=>{const r=analyze('I have experience in education and skills.\n- Worked from 2020 to 2023');assert.equal(r.sections.some(s=>s.found),false);assert.equal(r.quantified,0);});
+test('overlap uses extracted terms and reports missing terms',()=>{const r=analyze('Python and SQL','Python SQL Docker');assert.equal(r.overlap,67);assert.deepEqual(r.keywords.find(k=>k.term==='docker'),{term:'docker',found:false});});
+test('no description or unsupported description has no misleading score',()=>{assert.equal(analyze('Hello').overlap,null);assert.equal(analyze('Hello','A wonderful opportunity').overlap,null);});
+test('repeated keywords are deduplicated and case insensitive',()=>{const r=analyze('ACCESSIBILITY','Accessibility accessibility accessibility');assert.equal(r.overlap,100);assert.equal(r.keywords.length,1);});
