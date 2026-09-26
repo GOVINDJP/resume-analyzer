@@ -1,34 +1,31 @@
 import {analyze} from './analyzer.js';
+import {extractPdf} from './pdf-reader.js';
 const $ = id => document.getElementById(id);
-const sample = `Alex Morgan
-alex@example.com
-
-Summary
-Software developer building accessible web applications.
-
-Experience
-Software Developer | Example Studio | 2022–2025
-- Built React and TypeScript dashboards for 500 users.
-- Reduced reporting time by 30 percent through SQL automation.
-- Collaborated with designers to improve customer workflows.
-
-Education
-BSc Computer Science | Example University | 2022
-
-Skills
-JavaScript, TypeScript, React, SQL, HTML, CSS, Git, testing`;
-const sampleJob = 'We seek a developer with React, TypeScript, SQL, Docker and AWS. Build accessible applications. Collaborate on accessible applications and improve testing.';
-const count = () => {$('count').textContent = `${$('resume').value.trim() ? $('resume').value.trim().split(/\s+/).length : 0} words`;};
+let resumeText = '', uploadController;
 function resetReport() {$('report').hidden=true;$('report').replaceChildren();$('empty').hidden=false;$('error').textContent='';$('status').textContent='';}
-for (const id of ['resume','job']) $(id).addEventListener('input',()=>{count();resetReport();});
-$('sample').addEventListener('click',()=>{$('resume').value=sample;$('job').value=sampleJob;count();resetReport();});
-$('clear').addEventListener('click',()=>{$('form').reset();count();resetReport();$('resume').focus();});
+$('job').addEventListener('input',resetReport);
+function clearUpload() { uploadController?.abort(); uploadController=null; resumeText=''; $('analyze').disabled=true; $('pdf-status').textContent=''; $('pdf-error').textContent=''; $('preview').textContent=''; $('preview-wrap').hidden=true; $('form').setAttribute('aria-busy','false'); resetReport(); }
+$('clear').addEventListener('click',()=>{clearUpload();$('form').reset();$('pdf').focus();});
+$('pdf').addEventListener('change',async()=>{
+  clearUpload(); const file=$('pdf').files[0]; if(!file)return;
+  const controller=new AbortController(); uploadController=controller;
+  $('form').setAttribute('aria-busy','true'); $('pdf-status').textContent='Reading PDF on your device…';
+  try {
+    const result=await extractPdf(file,{signal:controller.signal,onProgress:(n,total)=>{$('pdf-status').textContent=`Reading page ${n} of ${total}…`;}});
+    if(controller.signal.aborted)return;
+    resumeText=result.text; $('preview').textContent=result.text; $('preview-wrap').hidden=false;
+    $('pdf-status').textContent=`Ready: ${file.name} · ${result.pages} page(s) · ${result.text.split(/\s+/).length} words.${result.emptyPages ? ` ${result.emptyPages} page(s) had no selectable text and were skipped.` : ''} Review the extracted text before analyzing.`;
+    $('analyze').disabled=false;
+  } catch(error) { if(!controller.signal.aborted) { $('pdf-status').textContent=''; $('pdf-error').textContent=error.message; } }
+  finally { if(uploadController===controller) $('form').setAttribute('aria-busy','false'); }
+});
 function el(tag, text, className) {const n=document.createElement(tag);n.textContent=text;if(className)n.className=className;return n;}
 function chips(parent, items) {const row=el('div','','chips');for(const item of items)row.append(el('span',item.label,`chip${item.found?'':' missing'}`));parent.append(row);}
 $('form').addEventListener('submit',event=>{
   event.preventDefault();
   try {
-    const r=analyze($('resume').value,$('job').value);const report=$('report');report.replaceChildren();
+    if (!resumeText) throw new Error('Upload a readable resume PDF first.');
+    const r=analyze(resumeText,$('job').value);const report=$('report');report.replaceChildren();
     const stats=el('div','','stats');for(const [value,label] of [[r.words,'words'],[r.bullets,'bullet points'],[r.quantified,'measured bullets']]){const stat=el('div','','stat');stat.append(el('b',String(value)),el('span',label));stats.append(stat);}report.append(stats);
     report.append(el('h3','Structure check','section-title'));
     chips(report,r.sections.map(s=>({label:`${s.found?'✓':'○'} ${s.name}`,found:s.found})));
